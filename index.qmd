@@ -1,0 +1,11 @@
+---
+title: "Welcome to my Homepage"
+---
+
+This is my website. I am a senior CS and Statistics student at Mount Holyoke College.
+
+To learn more about Quarto websites visit <https://quarto.org/docs/websites>.
+
+```{r}
+1 + 1
+```
