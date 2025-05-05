@@ -9,7 +9,8 @@ website:
       - href: index.qmd
         text: Home
       - about.qmd
-      - FPCP3.qmd
+      - href: FPCP4.qmd
+        text: STAT 244-SC
 
 format:
   html:

@@ -1,1 +1,51 @@
-/* css styles */
+body {
+  background-color: #ffffff;
+  color: #223843;
+  font-family: Georgia, serif;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+a {
+  color: #d77a61;
+  text-decoration: none;
+}
+a:hover {
+  color: #d8b4a0;
+}
+
+/* Navigation Bar */
+.navbar {
+  background-color: #dbd3d8 !important;
+  color: #223843 !important;
+  border-bottom: 1px solid #ccc;
+}
+
+/* Code blocks */
+pre, code {
+  background-color: #dbd3d8;
+  color: #223843;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}
+
+/* Simple button styling */
+.btn {
+  background-color: #d8b4a0;
+  color: #223843;
+  border: none;
+  padding: 0.4em 0.8em;
+  border-radius: 4px;
+}
+.btn:hover {
+  background-color: #d77a61;
+}
+
+/* Clean section container (optional use) */
+.section-box {
+  background-color: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin: 2rem auto;
+  max-width: 800px;
+}

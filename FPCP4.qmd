@@ -1,0 +1,238 @@
+---
+title: "STAT 244-SC Final Project"
+author: "Robin Tran"
+# format: live-html
+# engine: knitr
+format: #revealjs
+    pdf:
+      keep-tex: true
+      include-in-header:
+         text: |
+           \usepackage{fvextra}
+           \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+            \DefineVerbatimEnvironment{OutputCode}{Verbatim}{breaklines,commandchars=\\\{\}}
+    html:
+      self-contained: true
+      grid:
+        margin-width: 200px
+      code-fold: false
+      toc: true
+      # callout-appearance: minimal
+# You can change the color theme of the rendered document 
+theme: default
+---
+
+```{r include = FALSE}
+knitr::opts_chunk$set(
+  error = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.height = 2.75, 
+  fig.width = 4.25,
+  fig.env='figure',
+  fig.pos = 'h',
+  fig.align = 'center')
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, fig.width = 7,
+  fig.height = 4.5)
+library(readr)
+library(purrr)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(mosaic)
+library(gmodels)
+library(Sleuth3)
+library(knitr)
+library(kableExtra)
+library(viridis)
+library(corrplot)
+library(tidyverse)
+library(tidymodels)
+library(readxl)
+library(MASS)
+library(caret)
+library(glmnet)
+library(dplyr)
+library(ggplot2)
+library(parsnip)
+```
+
+# Introduction
+
+This project explores customer behavior using a dataset with demographic, transactional, and engagement features. There are two main sections. In the first section, we implemented linear regression models to predict each customer's average transaction value, comparing different model specifications using 10-fold cross-validation. In the second section, we used logistic regression to classify whether a customer is at high churn risk based on selected predictors. The goal is to understand what factors are associated with customer spending and retention, and to evaluate model performance using appropriate validation techniques.
+
+```{r, include=FALSE}
+data <- read.csv("customer.csv")
+```
+
+```{r, include=FALSE}
+nrow(data)
+```
+
+Each row in the data set represents one individual customer who has engaged with the platform and has at least one recorded purchase.
+
+```{r, include=FALSE}
+quantitative_vars <- c(
+  "age", "days_since_last_login", "avg_time_spent", 
+  "avg_transaction_value", "avg_frequency_login_days", 
+  "points_in_wallet", "churn_risk_score"
+)
+
+sapply(data[quantitative_vars], class)
+```
+
+```{r, include=FALSE}
+data <- data %>%
+  mutate(avg_frequency_login_days = as.numeric(avg_frequency_login_days))
+```
+
+```{r, include=FALSE}
+categorical_vars <- c(
+  "gender", "region_category", "membership_category", "joined_through_referral",
+  "preferred_offer_types", "medium_of_operation", "internet_option",
+  "used_special_discount", "offer_application_preference", "past_complaint",
+  "complaint_status", "feedback"
+)
+
+sapply(data[categorical_vars], class)
+```
+
+```{r, include=FALSE}
+data <- data %>%
+  mutate(across(all_of(categorical_vars), as.factor))
+```
+
+```{r, include=FALSE}
+data <- data %>%
+  mutate(across(
+    c("joined_through_referral", "medium_of_operation"),
+    ~ ifelse(. == "?", "Unknown", .)
+  ))
+```
+
+```{r, include=FALSE}
+missing_summary <- sapply(data, function(x) {
+  sum(is.na(x)) + sum(x == "", na.rm = TRUE)
+})
+
+missing_summary[missing_summary>0]
+```
+
+```{r, include=FALSE}
+all_vars <- c(quantitative_vars, categorical_vars)
+
+data <- data %>%
+  filter(across(all_of(all_vars), ~ !is.na(.)&. != ""))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
+data <- data %>%
+  filter(churn_risk_score != -1)
+```
+
+```{r, include=FALSE}
+nrow(data)
+```
+
+# Exploratory Data Analysis
+
+To better understand the relationship between user behavior and churn risk, we included a variety of plots.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = factor(churn_risk_score), fill = factor(churn_risk_score))) +
+  geom_bar() +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  labs(title = "Churn Risk Score Distribution", x = "Churn Risk Score", y = "Count")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+data %>%
+  count(membership_category) %>%
+  ggplot(aes(x = "", y = n, fill = membership_category)) +
+  geom_col(width = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  labs(title = "Membership Category Distribution")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = age)) +
+  geom_histogram(bins = 30, fill = viridis(1), color = "white") +
+  theme_bw() +
+  labs(title = "Age Distribution", x = "Age", y = "Count")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = avg_frequency_login_days)) +
+  geom_density(fill = viridis(1), alpha = 0.5) +
+  theme_bw() +
+  labs(title = "Density of Avg Frequency of Login Days", x = "Avg Frequency Login Days", y = "Density")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+data %>%
+  count(internet_option, churn_risk_score) %>%
+  ggplot(aes(x = internet_option, y = n, fill = factor(churn_risk_score))) +
+  geom_bar(stat = "identity") +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  labs(title = "Internet Option by Churn Risk Score", x = "Internet Option", y = "Count", fill = "Churn Score") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = gender, fill = factor(churn_risk_score))) +
+  geom_bar(position = "fill") +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  labs(title = "Churn Risk Scores by Gender", x = "Gender", y = "%")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = membership_category, fill = factor(churn_risk_score))) +
+  geom_bar(position = "fill") +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Membership Category vs Churn Risk Score", x = "Membership Category", y = "%")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = factor(churn_risk_score), y = age, fill = factor(churn_risk_score))) +
+  geom_boxplot() +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  labs(title = "Age Across Churn Risk Scores", x = "Churn Risk Score", y = "Age")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = points_in_wallet, fill = factor(churn_risk_score))) +
+  geom_density(alpha = 0.5) +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  labs(title = "Wallet Points by Churn Risk Score", x = "Points In Wallet", y = "Density")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+data %>%
+  group_by(churn_risk_score) %>%
+  summarise(avg_trans_value = mean(avg_transaction_value, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(churn_risk_score), y = avg_trans_value, group = 1)) +
+  geom_line(color = viridis(1)) +
+  geom_point(size = 2) +
+  theme_bw() +
+  labs(title = "Avg Transaction Value by Churn Risk Score", x = "Churn Risk Score", y = "Avg Transaction Value")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x = joined_through_referral, fill = factor(churn_risk_score))) +
+  geom_bar(position = "fill") +
+  scale_fill_viridis_d() +
+  theme_bw() +
+  labs(title = "Referral Status vs Churn Risk Scores", x = "Referral", y = "%")
+```

@@ -2,8 +2,6 @@
 title: "Welcome to my Homepage"
 ---
 
-This is my website. I am a senior CS and Statistics student. Yay.
+![](a4c132ada8c1797c0cbd93d8609a9ac4.gif)
 
-```{r}
-1 + 1
-```
+Please use the tab above to navigate through my website. Excited to have you here!

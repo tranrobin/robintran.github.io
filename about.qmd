@@ -2,8 +2,8 @@
 title: "About"
 ---
 
-About this site
+Hi there, my name is Robin. I am a senior CS and Statistics student from Mount Holyoke College. I am interested in applied statistics and machine learning. Welcome to my website!
 
-```{r}
-1 + 1
-```
+![](IMG_3256.jpg){width="400"}
+
+To contact me, please reach out via [LinkedIn](https://www.linkedin.com/in/robin-tran/).
