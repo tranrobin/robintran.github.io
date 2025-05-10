@@ -58,6 +58,7 @@ library(glmnet)
 library(dplyr)
 library(ggplot2)
 library(parsnip)
+library(broom)
 ```
 
 # Introduction
@@ -133,7 +134,7 @@ data <- data %>%
   filter(churn_risk_score != -1)
 ```
 
-```{r, include=FALSE}
+```{r, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
 nrow(data)
 ```
 
@@ -236,3 +237,229 @@ ggplot(data, aes(x = joined_through_referral, fill = factor(churn_risk_score))) 
   theme_bw() +
   labs(title = "Referral Status vs Churn Risk Scores", x = "Referral", y = "%")
 ```
+
+# Modeling Methods
+
+## Linear Regression for Average Transaction Value
+
+We implemented three linear regression models to predict each customer's average transaction value using different sets of predictors, including demographic characteristics, engagement behaviors, and their interactions. Model performance was evaluated using 10-fold cross-validation with mean absolute error (MAE) as the primary metric.
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+lm_spec <- 
+  linear_reg() %>%
+  set_engine("lm")
+```
+
+Model 1 includes basic demographic and membership info to see if certain types of customers are more likely to churn.
+
+```{r, warning=FALSE, message=FALSE}
+model_1 <- lm_spec %>% fit(avg_transaction_value ~ age + gender + region_category + membership_category, data = data)
+```
+
+Model 2 focuses on recent customer behavior, since more active users may have lower churn risk.
+
+```{r, warning=FALSE, message=FALSE}
+model_2 <- lm_spec %>% fit(avg_transaction_value ~ avg_time_spent + avg_frequency_login_days + days_since_last_login + points_in_wallet, data = data)
+```
+
+Model 3 combines features from all domains and includes interaction between age and gender.
+
+```{r, warning=FALSE, message=FALSE}
+model_3 <- lm_spec %>% fit(avg_transaction_value ~ age*gender + avg_time_spent + membership_category + past_complaint + internet_option + points_in_wallet, data = data)
+```
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+set.seed(244)
+
+model_1_cv <- lm_spec %>%
+  fit_resamples(
+    avg_transaction_value ~ age + gender + region_category + membership_category,
+    resamples = vfold_cv(data, v = 10),
+    metrics = metric_set(mae)
+  )
+
+model_2_cv <- lm_spec %>%
+  fit_resamples(
+    avg_transaction_value ~ avg_time_spent + avg_frequency_login_days + days_since_last_login + points_in_wallet,
+    resamples = vfold_cv(data, v = 10),
+    metrics = metric_set(mae)
+  )
+
+model_3_cv <- lm_spec %>%
+  fit_resamples(
+    avg_transaction_value ~ age * gender + avg_time_spent + membership_category + past_complaint + internet_option + points_in_wallet,
+    resamples = vfold_cv(data, v = 10),
+    metrics = metric_set(mae)
+  )
+```
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+mae_1_in <- model_1 %>%
+  predict(new_data = data) %>%
+  bind_cols(data) %>%
+  mae(truth = avg_transaction_value, estimate = .pred)
+
+mae_2_in <- model_2 %>%
+  predict(new_data = data) %>%
+  bind_cols(data) %>%
+  mae(truth = avg_transaction_value, estimate = .pred)
+
+mae_3_in <- model_3 %>%
+  predict(new_data = data) %>%
+  bind_cols(data) %>%
+  mae(truth = avg_transaction_value, estimate = .pred)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
+mae_1_in
+mae_2_in
+mae_3_in
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
+# 10-fold CV MAE
+cv_1 <- model_1_cv %>% collect_metrics() %>% filter(.metric == "mae")
+cv_2 <- model_2_cv %>% collect_metrics() %>% filter(.metric == "mae")
+cv_3 <- model_3_cv %>% collect_metrics() %>% filter(.metric == "mae")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
+# 10-fold CV MAE
+cv_1 
+cv_2 
+cv_3 
+```
+
+| Model     | IN-SAMPLE MAE | 10-fold CV MAE |
+|:----------|--------------:|---------------:|
+| `model_1` |      15092.84 |       15100.21 |
+| `model_2` |      15138.97 |       15141.82 |
+| `model_3` |      15088.64 |       15098.81 |
+
+We selected the following linear model based on the lowest cross-validation error:
+
+\begin{align*}
+\text{avg\_transaction\_value}_i &= \beta_0 
++ \beta_1 \cdot \text{age}_i 
++ \beta_2 \cdot \text{gender}_i 
++ \beta_3 \cdot (\text{age}_i \times \text{gender}_i) \\
+&+ \beta_4 \cdot \text{avg\_time\_spent}_i 
++ \beta_5 \cdot \text{membership\_category}_i 
++ \beta_6 \cdot \text{past\_complaint}_i \\
+&+ \beta_7 \cdot \text{internet\_option}_i 
++ \beta_8 \cdot \text{points\_in\_wallet}_i 
++ \varepsilon_i
+\end{align*}
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+model_3_coefs <- tidy(model_3)
+
+library(kableExtra)
+
+model_3_coefs %>%
+  kable(digits = 5, caption = "Estimated Coefficients for Final Linear Model") %>%
+  kable_styling(full_width = FALSE)
+```
+
+Among all predictors, average time spent on the platform and points in wallet were significantly and positively associated with average transaction value. Specifically, each additional unit of time spent is associated with an increase of approximately \$0.90, and each additional point in the wallet corresponds to an increase of \$3.48 in transaction value.
+
+Membership category was also a strong predictor. Compared to the baseline group (Basic Membership), customers with Gold, Platinum, Premium, and Silver memberships had significantly higher average transaction values, with coefficients ranging from approximately \$3,170 (Silver) to \$9,694 (Platinum).
+
+In contrast, demographic variables such as age, gender, and their interaction terms were not statistically significant. Behavioral and engagement factors might be more informative predictors of customer spending than demographics in this context.
+
+## Logistic Regression for High Churn Risk
+
+We model the churn risk e using the following predictors:
+
+\begin{itemize}
+  \item \texttt{age}
+  \item \texttt{gender}
+  \item \texttt{points\_in\_wallet}
+  \item \texttt{avg\_time\_spent}
+  \item \texttt{membership\_category}
+\end{itemize}
+
+We model the log-odds of being high churn risk ($Y = 1$) as:
+
+$$
+\log\left( \frac{\mathbb{P}(Y = 1 \mid X_1, \ldots, X_5)}{1 - \mathbb{P}(Y = 1 \mid X_1, \ldots, X_5)} \right)
+= \beta_0 + \beta_1 \cdot \mathrm{age} + \beta_2 \cdot \mathrm{gender} +
+\beta_3 \cdot \mathrm{points\_in\_wallet} + \beta_4 \cdot \mathrm{avg\_time\_spent} +
+\beta_5 \cdot \mathrm{membership\_category}
+$$
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+data <- data %>%
+  mutate(
+    churn_high = ifelse(churn_risk_score >= 4, 1, 0),
+    gender = factor(gender),
+    membership_category = factor(membership_category)
+  )
+```
+
+```{r}
+logit_model <- glm(
+  churn_high ~ age + gender + points_in_wallet + avg_time_spent + membership_category, data = data, family = binomial(link = "logit")
+)
+```
+
+```{r}
+summary(logit_model)
+```
+
+Based on the results, we can observe that from this data context:
+
+-   age: For each 1-year increase in age, the odds of high churn risk increase slightly.
+
+-   genderMale: Being male is associated with slightly lower odds of high churn risk compared to being female.
+
+-   genderUnknown: Having unknown gender is associated with much lower odds of high churn risk compared to being female.
+
+-   points_in_wallet: For each additional point in the wallet, the odds of high churn risk decrease slightly.
+
+-   avg_time_spent: For each additional unit of average time spent, the odds of high churn risk decrease very slightly.
+
+-   Gold Membership: Being a Gold member is associated with very low odds of high churn risk compared to Basic.
+
+-   No Membership: Having no membership is associated with little to no change in churn risk compared to Basic.
+
+-   Platinum Membership: Being a Platinum member is associated with very low odds of high churn risk compared to Basic.
+
+-   Premium Membership: Being a Premium member is associated with very low odds of high churn risk compared to Basic.
+
+-   Silver Membership: Being a Silver member is associated with very low odds of high churn risk compared to Basic.
+
+Since **points in wallet** appeared to be a significant predictor of churn risk, we provide a more detailed interpretation of its effect. The estimated coefficient was
+
+$$
+\hat{\beta}_{\mathrm{points\_in\_wallet}} = -0.003336
+$$
+
+```{r}
+exp(-0.003336)
+```
+
+We found that each additional point in the wallet **reduces the odds of being high churn risk by about 0.33%**. We also simulated predictions for representative customers from our dataset.
+
+```{r}
+new_data <- data.frame(
+  age = c(25, 45),
+  gender = factor(c("F", "M"), levels = levels(data$gender)),
+  points_in_wallet = c(100, 300),
+  avg_time_spent = c(20, 5),
+  membership_category = factor(c("Basic Membership", "Gold Membership"),
+                               levels = levels(data$membership_category))
+)
+
+predicted_probs <- predict(logit_model, newdata = new_data, type = "response")
+
+cbind(new_data, predicted_probability = predicted_probs)
+```
+
+From our data context, we could predict that a 25-year-old female with 100 wallet points, 20 average time spent, and Basic Membership has a predicted probability of 1 of being high churn risk. On the other hand, a 45-year-old male with 300 wallet points, 5 average time spent, and Gold Membership has a predicted probability of 0.712 of being high churn risk.
+
+It is worth noting that logistic regression is better suited for binary outcomes because it ensures predicted probabilities stay between 0 and 1, while linear regression can produce invalid probabilities outside that range. Logistic regression models the log-odds, but its coefficients are more difficult to interpret.
+
+# Conclusion
+
+This project applied linear regression to predict average transaction value and logistic regression to classify high churn risk. Results indicated that behavioral features, such as time spent on the platform and points in wallet, were more predictive than demographic variables. Cross-validation was used to compare model performance, and the final models highlighted key factors associated with customer spending and retention. Overall, the analysis suggests that more engaged users tend to spend more and are less likely to churn.
